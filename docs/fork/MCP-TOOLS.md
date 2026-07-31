@@ -56,9 +56,16 @@ Anhängen, Whiteboard-Inhalten und **verlinkten Dokumenten** (entstehen beim „
 ändern, Zeilen oder Spalten löschen. **Die Tabelle selbst legt ein Mensch einmal in der Oberfläche
 an.**
 
-**Schreibbare Zelltypen:** `number`, `date` (Zeitstempel), `checkbox`, `select`.
-**Nicht schreibbar:** `rich-text` (Textspalten), `multi-select`, `progress`, `image`, `member`,
-`link`. Der Validator wirft bei allem, was nicht in der ersten Liste steht.
+**Schreibbare Zelltypen:** `number`, `date` (Zeitstempel in Millisekunden), `checkbox`, `select`
+(eine Options-Kennung), `multi-select` (**Array** von Options-Kennungen) und `rich-text` (String,
+wird intern als `Y.Text` abgelegt).
+
+**Nicht schreibbar:** `progress`, `image`, `member`, `link`. Der Validator wirft bei allem, was
+nicht in der ersten Liste steht.
+
+> **Auswahloptionen anlegen kann der MCP nicht.** Existiert ein Wert noch nicht, lehnt der
+> Validator ihn ab. Optionen entstehen entweder beim Eintippen in der Oberfläche oder über die
+> Browser-Konsole (siehe unten).
 
 ---
 
@@ -121,8 +128,9 @@ curl -s -X POST "$URL" -H "Authorization: Bearer $TOKEN" -H 'content-type: appli
 
 Antwort bei Erfolg: `{"success":true,"docId":"…","databaseBlockId":"…","rowId":"…"}`
 
-**Neue Auswahlwerte** (etwa ein zusätzliches Projekt) legt ein Mensch in der Oberfläche an — der
-Validator akzeptiert nur bereits konfigurierte Optionen.
+**Neue Auswahlwerte** (etwa ein zusätzliches Projekt) müssen vorher existieren — der Validator
+akzeptiert nur konfigurierte Optionen. Anlegen entweder durch Eintippen in der Oberfläche oder
+über die Browser-Konsole (siehe unten).
 
 ---
 
@@ -132,7 +140,8 @@ Validator akzeptiert nur bereits konfigurierte Optionen.
 | ------------------------------------------------------- | ---------------------------------------------------------------------------- |
 | `Database column X not found`                           | Spalten-Kennung falsch, oder Name statt Kennung übergeben                    |
 | `Database column X requires a configured select option` | Sichtbarer Text statt Options-Kennung übergeben, oder Option existiert nicht |
-| `Database column X type rich-text is not supported`     | Textspalte — noch nicht schreibbar                                           |
+| `Database column X requires an array of …`              | Multi-Select bekam einen Einzelwert statt eines Arrays                       |
+| `Database column X type … is not supported`             | Spaltentyp ohne Unterstützung (progress, image, member, link)                |
 | `Block X is not an AFFiNE database`                     | Blockkennung zeigt auf einen anderen Block                                   |
 | `unsupported block flavour: affine:database`            | `update_document` auf einem Dokument mit Tabelle                             |
 | `Doc with id X not found`                               | Falsche Dokument-ID, oder der Token gehört zu einem anderen Workspace        |
@@ -157,8 +166,40 @@ Zugriffsmodus der Zugangsberechtigung ist im Fork das einzige Tor.
 
 ## Bekannte Aufgaben
 
-| Thema                         | Stand                                                                                                           |
-| ----------------------------- | --------------------------------------------------------------------------------------------------------------- |
-| Textspalten schreibbar machen | Kleinste offene Erweiterung — ein Zweig im Validator von `packages/backend/server/src/core/doc/database-row.ts` |
-| Upstream 0.28                 | Bringt vermutlich eine native Lösung; dann diese Übernahme ablösen (LESSONS #15)                                |
-| `semantic_search`             | Braucht einen Embedding-Schlüssel (Gemini) unter Settings → Integrations → AI BYOK                              |
+| Thema                            | Stand                                                                                                                                          |
+| -------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
+| ~~Textspalten und Multi-Select~~ | **Erledigt am 2026-07-31.** Speicherformen vorab an einem Live-Dokument gemessen: Multi-Select ist ein einfaches Array, Rich-Text ein `Y.Text` |
+| Upstream 0.28                    | Bringt vermutlich eine native Lösung; dann diese Übernahme ablösen (LESSONS #15)                                                               |
+| `semantic_search`                | Braucht einen Embedding-Schlüssel (Gemini) unter Settings → Integrations → AI BYOK                                                             |
+
+---
+
+## Auswahloptionen anlegen (Browser-Konsole)
+
+Der MCP kann keine Optionen erzeugen. Für viele Werte auf einmal ist die Konsole schneller als das
+Eintippen — sie schreibt über dasselbe Modell wie die Oberfläche:
+
+<!-- prettier-ignore -->
+```javascript
+(() => {
+  const m = document.querySelector('affine-database').model;
+  const soll = {
+    'SPALTEN-ID': ['Wert A', 'Wert B'],
+  };
+  m.store.transact(() => {
+    for (const [colId, werte] of Object.entries(soll)) {
+      const col = m.props.columns.find(c => c.id === colId);
+      const neu = [...(col.data.options ?? [])];
+      werte.forEach(w => {
+        if (!neu.some(o => o.value === w)) {
+          neu.push({ id: w.toLowerCase().replace(/[^a-z]/g, '') + '-opt', value: w,
+                     color: 'var(--affine-v2-chip-label-blue)' });
+        }
+      });
+      col.data = { ...col.data, options: neu };
+    }
+  });
+})();
+```
+
+Die vergebenen Kennungen sind danach die Werte, die `append_database_row` erwartet.

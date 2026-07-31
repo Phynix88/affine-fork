@@ -102,3 +102,8 @@ storageState.json
 /.playwright-browsers/
 **/.vitest-attachments/
 /blocksuite/framework/std/src/__tests__/gfx/__screenshots__/
+
+# Lokales Dev-Artefakt: Symlink auf das gebaute Web-Frontend, damit der
+# Dev-Server es ausliefert (siehe docs/fork/README.md). Gehoert nicht ins Repo
+# und laesst sonst den Pre-Commit-Linter ueber das gesamte dist/ laufen.
+packages/backend/server/static
