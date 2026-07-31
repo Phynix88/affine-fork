@@ -1,0 +1,83 @@
+# Baut den Fork vollständig im Container — Server, natives Rust-Modul und die
+# drei Frontends. Der Zielhost (helios) braucht damit weder Node noch Rust noch
+# Yarn; er baut nur das Image.
+#
+# Bewusst NICHT das Upstream-Dockerfile unter .github/deployment/node/: das
+# kopiert bereits gebaute Artefakte hinein und setzt eine vollständige
+# Werkzeugkette auf dem Host voraus.
+#
+# Bauen:
+#   podman build -f docker/cockpit/Containerfile -t localhost/affine-cockpit:<version> .
+
+# ---------- Stufe 1: bauen ----------
+FROM node:22-bookworm AS builder
+WORKDIR /src
+
+# Rust wird für @affine/server-native gebraucht (napi-Bindings).
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends curl build-essential pkg-config libssl-dev ca-certificates git python3 && \
+    rm -rf /var/lib/apt/lists/*
+RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal
+ENV PATH="/root/.cargo/bin:${PATH}"
+
+RUN corepack enable
+
+# Erst nur die Dateien, die die Abhängigkeitsauflösung bestimmen — so bleibt
+# die teure Installation zwischen Bauläufen im Cache, solange sie sich nicht
+# ändern.
+COPY package.json yarn.lock .yarnrc.yml ./
+COPY .yarn/ .yarn/
+COPY tools/ tools/
+COPY packages/ packages/
+COPY blocksuite/ blocksuite/
+COPY Cargo.toml Cargo.lock ./
+COPY .cargo/ .cargo/
+
+RUN yarn install --immutable
+
+# Natives Modul (Rust). Dauert am längsten.
+RUN yarn affine @affine/server-native build
+
+# Server bündeln -> packages/backend/server/dist/main.js
+RUN yarn affine bundle -p @affine/server
+
+# Frontends. PUBLIC_PATH=/ ist Pflicht, sonst zeigen die Asset-Pfade auf
+# AFFiNEs CDN und die selbstgehostete Instanz lädt weiß.
+ENV PUBLIC_PATH=/
+RUN yarn affine @affine/web build && \
+    yarn affine @affine/admin build && \
+    yarn affine @affine/mobile build
+
+# ---------- Stufe 2: Laufzeit ----------
+# Ab hier deckungsgleich mit dem Upstream-Dockerfile, damit sich die
+# Laufzeitumgebung nicht unnötig von der offiziellen unterscheidet.
+FROM node:22-bookworm-slim AS assets
+WORKDIR /app
+
+COPY --from=builder /src/packages/backend/server /app
+COPY --from=builder /src/packages/frontend/apps/web/dist /app/static
+COPY --from=builder /src/packages/frontend/admin/dist /app/static/admin
+COPY --from=builder /src/packages/frontend/apps/mobile/dist /app/static/mobile
+
+ARG TARGETARCH
+ARG TARGETVARIANT
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends openssl ca-certificates && \
+    rm -rf /var/lib/apt/lists/*
+
+RUN AFFINE_DOCKER_CLEAN=1 TARGETARCH="${TARGETARCH}" TARGETVARIANT="${TARGETVARIANT}" node ./scripts/docker-clean.mjs
+
+FROM node:22-bookworm-slim
+WORKDIR /app
+
+COPY --from=assets /app /app
+
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends openssl libjemalloc2 && \
+    rm -rf /var/lib/apt/lists/*
+
+ENV LD_PRELOAD=libjemalloc.so.2
+
+EXPOSE 3010
+
+CMD ["node", "./dist/main.js"]
