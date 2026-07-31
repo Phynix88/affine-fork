@@ -243,8 +243,14 @@ ersatzlos streichen. Sie ist bewusst als Zwischenlösung gebaut.
 
 ### #16 — Grenzen, die man beim Schreiben kennen muss
 
-**Nur vier Zelltypen** werden akzeptiert: `number`, `date` (Zeitstempel als Zahl), `checkbox`,
-`select`. Bei allem anderen wirft der Validator — **auch bei `rich-text`, also Textspalten.**
+**Sechs Zelltypen** werden akzeptiert: `number`, `date` (Zeitstempel als Zahl), `checkbox`,
+`select` (eine Options-Kennung), `multi-select` (**Array** von Options-Kennungen) und `rich-text`
+(String). Betroffen sind noch `progress`, `image`, `member` und `link`.
+
+> **Multi-Select und Rich-Text kamen am 2026-07-31 dazu**, sie sind nicht Teil des Upstream-PR.
+> Die Speicherformen wurden vorher an einem Live-Dokument gemessen — siehe #18.
+
+Bei allem anderen wirft der Validator.
 
 **Auswahlwerte sind Options-Kennungen, nicht sichtbarer Text.** Der Ablauf ist immer:
 
@@ -283,11 +289,38 @@ ist der Fließtext eines Dokuments für die Automatisierung dauerhaft gesperrt.
 
 ---
 
+### #18 — Speicherformen messen, nicht aus dem Typ ableiten
+
+Beim Ergaenzen von Multi-Select und Rich-Text war die entscheidende Frage, **wie** die Werte im
+Yjs liegen. Aus dem Frontend-Modell liest man `zod.array(zod.string())` — daraus folgt aber nicht,
+ob daraus ein `Y.Array` oder ein einfaches Array wird.
+
+**Vorgehen, das die Frage endgueltig beantwortet hat:** In einem echten Dokument ueber die
+Browser-Konsole eine Zelle so setzen, wie es die Oberflaeche intern tut
+(`m.props.cells[rowId][colId] = { columnId, value }`), und dann ueber `read_document` zuruecklesen.
+
+**Ergebnis:**
+
+| Typ            | Speicherform                                                                |
+| -------------- | --------------------------------------------------------------------------- |
+| `select`       | String — eine Options-Kennung                                               |
+| `multi-select` | **einfaches Array** von Options-Kennungen, ausdruecklich **kein** `Y.Array` |
+| `rich-text`    | **`Y.Text`**, damit die Zelle kollaborativ editierbar bleibt                |
+
+Nur Rich-Text weicht damit von der reinen Durchreichung ab; `writeCells` liest dafuer die
+Spaltentypen aus dem Block.
+
+**Merke:** Ein Typ im Quellcode beschreibt die Schnittstelle, nicht die Ablage. Wo beides
+auseinanderfallen kann, ist die Messung am lebenden System billiger als ein falscher Deploy.
+
+---
+
 ## Offene Punkte
 
-| Thema                                       | Stand                                                                                                      |
-| ------------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
-| Textspalten (`rich-text`) schreibbar machen | Kleinste offene Erweiterung: ein Zweig im Validator von `database-row.ts`. Betrifft z. B. das Feld „Notiz" |
-| Upstream 0.28                               | Bringt vermutlich die native Lösung; dann #15 ablösen                                                      |
-| Datenbanken/Spalten anlegen                 | Bewusst nicht enthalten. Schemata bleiben Handarbeit in der Oberfläche                                     |
-| Relationen, Rollups, relative Datumsfilter  | Fehlen in AFFiNE. Stehen auf der Reibungsliste, aber erst umsetzen, wenn sie im Alltag wirklich schmerzen  |
+| Thema                                      | Stand                                                                                                     |
+| ------------------------------------------ | --------------------------------------------------------------------------------------------------------- |
+| ~~Textspalten und Multi-Select~~           | **Erledigt 2026-07-31**, siehe #18                                                                        |
+| Auswahloptionen anlegen                    | Kann der MCP nicht. Anleitung fuer die Browser-Konsole in `MCP-TOOLS.md`                                  |
+| Upstream 0.28                              | Bringt vermutlich die native Lösung; dann #15 ablösen                                                     |
+| Datenbanken/Spalten anlegen                | Bewusst nicht enthalten. Schemata bleiben Handarbeit in der Oberfläche                                    |
+| Relationen, Rollups, relative Datumsfilter | Fehlen in AFFiNE. Stehen auf der Reibungsliste, aber erst umsetzen, wenn sie im Alltag wirklich schmerzen |

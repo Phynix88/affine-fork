@@ -106,8 +106,9 @@ Der PR wurde abgelehnt, weil Yjs serverseitig für AFFiNEs Cloud zu speicherhung
 native y-octo-Lösung für 0.28 geplant ist. Für eine Einzelnutzer-Instanz trifft dieser Grund nicht
 zu. **Sobald 0.28 die native Lösung bringt, wird diese Übernahme ersetzt.**
 
-**Grenzen:** Nur Zellen der Typen `number`, `date`, `checkbox`, `select`; alles andere wirft — auch
-`rich-text`, also Textspalten. Auswahlwerte müssen als **Options-Kennung** übergeben werden
+**Grenzen:** Zellen der Typen `number`, `date`, `checkbox`, `select`, `multi-select` und
+`rich-text` (die beiden letzten am 2026-07-31 ergaenzt); `progress`, `image`, `member` und `link`
+werfen. Auswahlwerte müssen als **Options-Kennung** übergeben werden
 (`data-value` aus `read_document`), nicht als sichtbarer Text. Legt keine Datenbanken oder Spalten
 an und löscht nichts.
 
