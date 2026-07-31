@@ -254,10 +254,12 @@ export class WorkspaceMcpProvider {
 
     const tools = [readDocument, semanticSearch, keywordSearch];
 
-    if (
-      accessMode === McpAccessMode.READ_WRITE &&
-      (env.dev || env.namespaces.canary)
-    ) {
+    // FORK: upstream additionally gates write tools behind `env.dev ||
+    // env.namespaces.canary`, which keeps them unreachable on a self-hosted
+    // production server. This fork exists to use them there, so the access
+    // mode of the credential is the only gate. Revoking the credential (or
+    // issuing a read-only one) is how access is withdrawn.
+    if (accessMode === McpAccessMode.READ_WRITE) {
       const createDocument = defineTool({
         name: 'create_document',
         title: 'Create Document',

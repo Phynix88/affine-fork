@@ -1,4 +1,3 @@
-import { BadRequestException } from '@nestjs/common';
 import {
   Args,
   Field,
@@ -107,7 +106,9 @@ export class McpCredentialResolver {
 
   @Query(() => Boolean)
   mcpCredentialReadWriteAvailable() {
-    return env.dev || env.namespaces.canary;
+    // FORK: always available — see the note in provider.ts. The UI uses this
+    // to decide whether to offer the read-write option when issuing a token.
+    return true;
   }
 
   @Mutation(() => RevealedMcpCredentialType)
@@ -115,13 +116,8 @@ export class McpCredentialResolver {
     @CurrentUser() user: CurrentUser,
     @Args('input') input: CreateMcpCredentialInput
   ) {
-    if (
-      input.accessMode === McpAccessMode.READ_WRITE &&
-      !env.dev &&
-      !env.namespaces.canary
-    ) {
-      throw new BadRequestException('MCP write tools are not available');
-    }
+    // FORK: upstream refuses to issue read-write credentials outside
+    // dev/canary. Removed for the same reason as the gate in provider.ts.
     await this.ac
       .user(user.id)
       .workspace(input.workspaceId)
