@@ -86,18 +86,23 @@ Die Antwort enthält die Auswahlwerte samt Kennung:
 
 `read_document` liefert sie nicht mit. In der Browser-Konsole auf der geöffneten Seite:
 
+Blockkennung der Datenbank:
+
+<!-- prettier-ignore -->
 ```javascript
-// Blockkennung der Datenbank
-document
-  .querySelector('affine-database')
-  .closest('[data-block-id]')
-  .dataset.blockId(
-    // Spalten mit Kennung, Name und Typ
-    () => {
-      const m = document.querySelector('affine-database').model;
-      return (m.props?.columns ?? m.columns).toArray?.().map(c => ({ id: c.id, name: c.name, type: c.type }));
-    }
-  )();
+document.querySelector('affine-database').closest('[data-block-id]').dataset.blockId;
+```
+
+Spalten mit Kennung, Name und Typ:
+
+<!-- prettier-ignore -->
+```javascript
+(() => {
+  const m = document.querySelector('affine-database').model;
+  return (m.props?.columns ?? m.columns)
+    .toArray?.()
+    .map(c => ({ id: c.id, name: c.name, type: c.type }));
+})();
 ```
 
 ### 3. Zeile schreiben
