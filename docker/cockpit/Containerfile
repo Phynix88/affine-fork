@@ -22,14 +22,19 @@ ENV PATH="/root/.cargo/bin:${PATH}"
 
 RUN corepack enable
 
-# Erst nur die Dateien, die die Abhängigkeitsauflösung bestimmen — so bleibt
-# die teure Installation zwischen Bauläufen im Cache, solange sie sich nicht
-# ändern.
+# ALLE Workspaces aus package.json müssen vorhanden sein, sonst fällt die
+# Abhängigkeitsauflösung anders aus und `--immutable` bricht ab
+# (YN0002: doesn't provide … requested by …). Die Liste lautet:
+#   '.', 'blocksuite/**/*', 'packages/*/*', 'packages/frontend/apps/*',
+#   'tools/*', 'docs/reference', 'tools/@types/*', 'tests/*'
+# docs/ und tests/ sehen verzichtbar aus, sind es aber nicht.
 COPY package.json yarn.lock .yarnrc.yml ./
 COPY .yarn/ .yarn/
 COPY tools/ tools/
 COPY packages/ packages/
 COPY blocksuite/ blocksuite/
+COPY docs/ docs/
+COPY tests/ tests/
 COPY Cargo.toml Cargo.lock ./
 COPY .cargo/ .cargo/
 
