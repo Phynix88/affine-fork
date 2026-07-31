@@ -1,19 +1,36 @@
-# Baut den Fork vollständig im Container — Server, natives Rust-Modul und die
-# drei Frontends. Der Zielhost (helios) braucht damit weder Node noch Rust noch
-# Yarn; er baut nur das Image.
+# Baut den Fork vollständig im Container. Der Zielhost (helios) braucht damit
+# weder Node noch Rust noch Yarn — er baut nur das Image.
 #
-# Bewusst NICHT das Upstream-Dockerfile unter .github/deployment/node/: das
-# kopiert bereits gebaute Artefakte hinein und setzt eine vollständige
-# Werkzeugkette auf dem Host voraus.
+#   podman build --build-arg GITHUB_SHA=$(git rev-parse HEAD) \
+#     -f docker/cockpit/Containerfile -t localhost/affine-cockpit:<version> .
 #
-# Bauen:
-#   podman build -f docker/cockpit/Containerfile -t localhost/affine-cockpit:<version> .
+# ---------------------------------------------------------------------------
+# WARUM DIESE DATEI EXISTIERT
+#
+# `.github/deployment/node/Dockerfile` ist KEIN Bau-Rezept, sondern nur der
+# Verpackungsschritt am Ende von AFFiNEs CI. Es kopiert fertige Artefakte und
+# setzt voraus, dass vorher fünf Dinge passiert sind, die nirgends im Dockerfile
+# stehen. Maßgeblich ist `.github/workflows/build-images.yml`, Job `build-images`:
+#
+#   1. yarn workspaces focus @affine/server --production
+#        -> node_modules NUR mit Produktionsabhängigkeiten des Servers
+#   2. yarn workspace @affine/server prisma generate
+#        -> Prisma-Client erzeugen
+#   3. mv ./node_modules ./packages/backend/server
+#        -> DER Schlüsselschritt: node_modules landet im server-Verzeichnis und
+#           kommt dadurch beim COPY ins Image. Ohne ihn startet der Server nicht.
+#   4. native Bibliothek als ECHTE Datei server-native.<arch>.node nach
+#      packages/backend/native (in der CI je Zielarchitektur gebaut)
+#   5. Frontends in ihre jeweiligen dist/-Verzeichnisse
+#
+# Diese Datei bildet genau diese Reihenfolge nach, in einem Rutsch.
+# ---------------------------------------------------------------------------
 
 # ---------- Stufe 1: bauen ----------
 FROM node:22-bookworm AS builder
 WORKDIR /src
 
-# Rust wird für @affine/server-native gebraucht (napi-Bindings).
+# Rust für @affine/server-native (napi-Bindings).
 RUN apt-get update && \
     apt-get install -y --no-install-recommends curl build-essential pkg-config libssl-dev ca-certificates git python3 && \
     rm -rf /var/lib/apt/lists/*
@@ -22,49 +39,38 @@ ENV PATH="/root/.cargo/bin:${PATH}"
 
 RUN corepack enable
 
-# Den gesamten Kontext kopieren statt einzelne Verzeichnisse auszuwählen.
-# Die mitgelieferte .dockerignore hält node_modules, target/ und Testartefakte
-# ohnehin draußen.
-#
-# Eine Auswahl zu treffen sieht cache-freundlicher aus, war aber die Quelle von
-# drei Fehlschlägen in Folge: es fehlten nacheinander die Workspaces docs/ und
-# tests/ (yarn --immutable bricht bei abweichender Auflösung ab), dann die
-# Root-tsconfig.json, die `affine init` im Postinstall liest. Weitere stille
-# Abhängigkeiten (rust-toolchain.toml, .npmrc, tsconfig.*.json) wären als
-# Nächstes gefolgt. Vollständigkeit schlägt hier Cache-Optimierung.
+# Gesamten Kontext kopieren, nicht einzelne Verzeichnisse auswählen. Die
+# mitgelieferte .dockerignore hält node_modules, target/ und Testartefakte
+# draußen. Eine Auswahl sieht cache-freundlicher aus, war aber die Ursache
+# mehrerer Fehlschläge: es fehlten nacheinander die Workspaces docs/ und tests/
+# sowie die Root-tsconfig.json, die `affine init` im Postinstall liest.
 COPY . .
 
-# Das Postinstall des Wurzelpakets lautet `yarn affine init && yarn husky`.
-# Husky richtet Git-Hooks ein und scheitert ohne .git-Verzeichnis, das die
-# .dockerignore ausschließt. HUSKY=0 ist der offizielle Schalter dafür.
+# Postinstall des Wurzelpakets ist `yarn affine init && yarn husky`. Husky
+# braucht ein Git-Repository, das die .dockerignore ausschließt.
 ENV HUSKY=0
 RUN yarn install --immutable
 
-# Natives Modul (Rust). Dauert am längsten.
-RUN yarn affine @affine/server-native build
-
-# `napi build` erzeugt server-native.node ohne Architektur-Suffix. Zur Laufzeit
-# genügt das: packages/backend/native/index.js lädt genau diese Datei zuerst und
-# greift nur im catch-Zweig auf die arch-spezifischen Namen zurück.
-#
-# Der Bundler löst jedoch ALLE require-Aufrufe statisch auf, auch die im
-# Fallback, und bricht sonst mit "Module not found: ./server-native.x64.node" ab.
-# Die Symlinks befriedigen den Auflöser; geladen wird immer die echte Datei.
-RUN cd packages/backend/native && \
-    for a in x64 arm64 armv7; do ln -sf server-native.node "server-native.$a.node"; done && \
+# --- CI-Schritt 4: native Bibliothek ---
+# `napi build` erzeugt server-native.node ohne Suffix. Der Bundler löst aber
+# ALLE require-Aufrufe in packages/backend/native/index.js statisch auf, auch
+# die arch-spezifischen im Fallback-Zweig. Es müssen ECHTE Dateien sein:
+# Symlinks befriedigen zwar den Auflöser, werden aber nicht als Asset nach
+# dist/ kopiert — und genau dort sucht docker-clean.mjs sie später.
+RUN yarn affine @affine/server-native build && \
+    cd packages/backend/native && \
+    for a in x64 arm64 armv7; do cp server-native.node "server-native.$a.node"; done && \
     ls -l server-native*.node
 
-# Server bündeln -> packages/backend/server/dist/main.js
+# --- Server bündeln (CI: yarn workspace @affine/server build) ---
 RUN yarn affine bundle -p @affine/server
 
-# Frontends.
-#   PUBLIC_PATH=/  — Pflicht, sonst zeigen die Asset-Pfade auf AFFiNEs CDN und
-#                    die selbstgehostete Instanz lädt weiß.
-#   GITHUB_SHA     — der HTML-Plugin liest sonst den Commit-Hash aus dem
-#                    Git-Repository, das die .dockerignore ausschließt. Der
-#                    Fehler war nicht fatal: der Bau lief mit Exit 0 durch und
-#                    erzeugte trotzdem KEIN dist/. Erst der COPY in Stufe 2 fiel
-#                    darüber. Die Variable ist der dafür vorgesehene Ausweg.
+# --- CI-Schritt 5: Frontends ---
+#   PUBLIC_PATH=/  sonst zeigen die Asset-Pfade auf AFFiNEs CDN und die
+#                  selbstgehostete Instanz lädt weiß.
+#   GITHUB_SHA     der HTML-Plugin liest den Commit-Hash sonst aus dem
+#                  Git-Repository, das die .dockerignore ausschließt. Der Bau
+#                  lief dann mit Exit 0 durch und erzeugte trotzdem KEIN dist/.
 ARG GITHUB_SHA=cockpit-local-build
 ENV PUBLIC_PATH=/ \
     GITHUB_SHA=${GITHUB_SHA}
@@ -72,20 +78,27 @@ RUN yarn affine @affine/web build && \
     yarn affine @affine/admin build && \
     yarn affine @affine/mobile build
 
-# Nicht auf den Exit-Code verlassen: prüfen, dass die Artefakte wirklich da sind.
-RUN set -eu; \
-    for d in packages/frontend/apps/web/dist \
-             packages/frontend/admin/dist \
-             packages/frontend/apps/mobile/dist \
-             packages/backend/server/dist; do \
-      test -s "$d/index.html" || test -s "$d/main.js" \
-        || { echo "LEERES BAU-ERGEBNIS: $d"; exit 1; }; \
-    done; \
-    echo "Alle vier Bau-Ergebnisse vorhanden"
+# --- CI-Schritte 1 bis 3: Laufzeit-Abhängigkeiten bereitstellen ---
+# Erst jetzt, denn `workspaces focus --production` wirft die Bau-Werkzeuge weg.
+RUN yarn config set --json supportedArchitectures.cpu '["x64"]' && \
+    yarn config set --json supportedArchitectures.libc '["glibc"]' && \
+    yarn workspaces focus @affine/server --production && \
+    yarn workspace @affine/server prisma generate && \
+    mv ./node_modules ./packages/backend/server/node_modules
 
-# ---------- Stufe 2: Laufzeit ----------
-# Ab hier deckungsgleich mit dem Upstream-Dockerfile, damit sich die
-# Laufzeitumgebung nicht unnötig von der offiziellen unterscheidet.
+# --- Vollständigkeitsprüfung: nicht auf Exit-Codes verlassen ---
+# Jeder dieser Punkte ist schon einmal still fehlgeschlagen.
+RUN set -eu; \
+    test -s packages/backend/server/dist/main.js          || { echo "FEHLT: Server-Bundle";        exit 1; }; \
+    test -s packages/frontend/apps/web/dist/index.html    || { echo "FEHLT: Web-Frontend";         exit 1; }; \
+    test -s packages/frontend/admin/dist/index.html       || { echo "FEHLT: Admin-Frontend";       exit 1; }; \
+    test -s packages/frontend/apps/mobile/dist/index.html || { echo "FEHLT: Mobile-Frontend";      exit 1; }; \
+    test -d packages/backend/server/node_modules          || { echo "FEHLT: node_modules";         exit 1; }; \
+    ls packages/backend/server/dist/server-native*.node >/dev/null 2>&1 \
+      || { echo "FEHLT: native Bibliothek in dist/"; ls -l packages/backend/server/dist/; exit 1; }; \
+    echo "Stufe 1 vollstaendig: Bundle, drei Frontends, node_modules, native Bibliothek"
+
+# ---------- Stufe 2: Verpacken (deckungsgleich mit Upstream) ----------
 FROM node:22-bookworm-slim AS assets
 WORKDIR /app
 
@@ -93,21 +106,6 @@ COPY --from=builder /src/packages/backend/server /app
 COPY --from=builder /src/packages/frontend/apps/web/dist /app/static
 COPY --from=builder /src/packages/frontend/admin/dist /app/static/admin
 COPY --from=builder /src/packages/frontend/apps/mobile/dist /app/static/mobile
-
-# Zwei Dinge, die das Upstream-Dockerfile voraussetzt, weil ihre CI sie vorher
-# an Ort und Stelle legt — beim Selbstbau muss man sie selbst mitbringen:
-#
-#   1. node_modules: Der Bundler zieht zwar den JavaScript-Code in main.js
-#      zusammen, aber Prisma braucht zur Laufzeit seine native Query-Engine.
-#      docker-clean.mjs unten dampft das Verzeichnis wieder ein.
-#   2. Die native Bibliothek gehört nach dist/. Genau dort sucht
-#      `pruneServerNative(distDir, keepArch)` sie und wirft die nicht
-#      benötigten Architekturen weg.
-#
-# Ohne beides baut das Image sauber durch und der Server stirbt beim Start.
-COPY --from=builder /src/node_modules /app/node_modules
-COPY --from=builder /src/packages/backend/native/server-native.node /app/dist/server-native.node
-COPY --from=builder /src/packages/backend/native/server-native.x64.node /app/dist/server-native.x64.node
 
 ARG TARGETARCH
 ARG TARGETVARIANT
@@ -117,6 +115,7 @@ RUN apt-get update && \
 
 RUN AFFINE_DOCKER_CLEAN=1 TARGETARCH="${TARGETARCH}" TARGETVARIANT="${TARGETVARIANT}" node ./scripts/docker-clean.mjs
 
+# ---------- Stufe 3: Laufzeit ----------
 FROM node:22-bookworm-slim
 WORKDIR /app
 
@@ -128,11 +127,10 @@ RUN apt-get update && \
 
 ENV LD_PRELOAD=libjemalloc.so.2
 
-# Startfähigkeit im Image festnageln, statt sie erst auf helios zu entdecken:
-# Der Server muss die native Bibliothek laden können. `node -e require(...)`
-# scheitert laut, wenn sie fehlt oder für die falsche Architektur gebaut wurde.
-RUN test -s /app/dist/server-native.node \
-    && node -e "require('/app/dist/server-native.node'); console.log('native Bibliothek ladbar')"
+# Startfähigkeit im Image festnageln statt sie auf helios zu entdecken.
+RUN set -eu; \
+    test -d /app/node_modules || { echo "FEHLT: node_modules im Laufzeit-Image"; exit 1; }; \
+    node -e "require('/app/dist/server-native.x64.node'); console.log('native Bibliothek ladbar')"
 
 EXPOSE 3010
 
