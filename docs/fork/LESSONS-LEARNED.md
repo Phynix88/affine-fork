@@ -315,6 +315,40 @@ auseinanderfallen kann, ist die Messung am lebenden System billiger als ein fals
 
 ---
 
+### #19 — Gleicher Image-Tag heisst nicht gleiches Image
+
+**Symptom:** Der Fork wurde geaendert, neu gebaut, `nixos-rebuild switch` gemacht — und die
+Aenderung wirkt nicht.
+
+**Ursache, zwei Ebenen:**
+
+1. **NixOS sieht keinen Unterschied.** Bleiben Version und Image-Tag gleich, aendert sich die
+   Konfiguration nicht, also tut `nixos-rebuild` nichts. Der Container laeuft mit dem alten Image
+   weiter.
+2. **Die Statusdatei des vorherigen Baus lag noch da.** Sie gehoert `root`, und wegen des
+   Sticky-Bits auf `/tmp` kann ein normaler Benutzer sie nicht loeschen — `rm -f` verschluckt den
+   Fehlschlag. Die Fortschrittspruefung meldete daraufhin sofort „fertig" mit dem Ergebnis des
+   **vorherigen** Laufs.
+
+**Abhilfe:**
+
+```bash
+sudo rm -f /tmp/affine-image-exit.txt          # vor dem Bau, mit sudo
+sudo systemctl restart podman-affine-server    # nach dem Bau, sonst greift das neue Image nicht
+```
+
+**Und der Beweis, der wirklich zaehlt** — die Image-ID vor und nach dem Neustart vergleichen:
+
+```bash
+sudo podman inspect affine-server --format '{{.Image}}' | cut -c1-12
+```
+
+Aendert sie sich nicht, wurde das Image gar nicht ersetzt. Zusaetzlich inhaltlich pruefen, ob der
+neue Code drin ist (`grep` im gebuendelten `main.js`) — auch das hat am 2026-07-31 einen
+scheinbar erfolgreichen Bau als wirkungslos entlarvt.
+
+---
+
 ## Offene Punkte
 
 | Thema                                      | Stand                                                                                                     |

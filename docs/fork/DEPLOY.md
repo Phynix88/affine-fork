@@ -38,6 +38,17 @@ sudo setsid nohup sh -c "podman build --build-arg GITHUB_SHA=$SHA \
   < /dev/null > /dev/null 2>&1 &
 ```
 
+> **Vor dem Start die alte Statusdatei mit `sudo` entfernen:**
+>
+> ```bash
+> sudo rm -f /tmp/affine-image-exit.txt
+> ```
+>
+> Sie gehört `root` (der Bau läuft unter `sudo`), und wegen des Sticky-Bits auf `/tmp` darf ein
+> normaler Benutzer sie nicht löschen — `rm -f` schluckt den Fehlschlag stillschweigend. Bleibt sie
+> liegen, meldet die nächste Fortschrittsprüfung sofort „fertig" mit dem **Ergebnis des
+> vorherigen Laufs**. Genau das ist am 2026-07-31 passiert.
+
 **Fortschritt verfolgen** (der Bau läuft eigenständig weiter, auch wenn die Sitzung endet):
 
 ```bash
@@ -108,6 +119,33 @@ curl -s -X POST "https://affine.wefers.club/api/workspaces/<WS-ID>/mcp" \
 # 5. Permanent machen
 just switch
 ```
+
+---
+
+## Ein neues Image ausrollen, wenn die NixOS-Konfiguration gleich bleibt
+
+**Der häufigere Fall:** Der Fork wurde geändert und neu gebaut, aber Version und Image-Tag sind
+dieselben. Dann ändert sich die NixOS-Konfiguration **nicht** — und `nixos-rebuild` tut folglich
+gar nichts. Der Container läuft weiter mit dem alten Image.
+
+```bash
+# Vorher: welche Image-ID läuft gerade?
+ssh dominikw@192.168.8.206 "sudo podman inspect affine-server --format '{{.Image}}' | cut -c1-12"
+
+# Neustart -- erst dadurch greift das neue Image
+ssh dominikw@192.168.8.206 "sudo systemctl restart podman-affine-server"
+
+# Nachher: die ID MUSS sich geändert haben
+ssh dominikw@192.168.8.206 "sudo podman inspect affine-server --format '{{.Image}}' | cut -c1-12; \
+  systemctl is-active podman-affine-server"
+curl -s -o /dev/null -w '%{http_code}\n' https://affine.wefers.club/
+```
+
+**Die Image-ID vor und nach dem Neustart zu vergleichen ist der eigentliche Beweis.** Ein
+unveränderter Wert bedeutet, dass der Bau das Image gar nicht ersetzt hat — etwa weil podman alle
+Schichten aus dem Cache nahm oder der Bau in Wahrheit fehlschlug.
+
+---
 
 **Rückweg:** `sudo nixos-rebuild switch --rollback` auf helios. Das alte Upstream-Image bleibt
 lokal vorhanden; im Modul genügt es, `image` wieder darauf zu zeigen. Daten liegen in
