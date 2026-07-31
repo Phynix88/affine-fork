@@ -57,12 +57,31 @@ RUN cd packages/backend/native && \
 # Server bündeln -> packages/backend/server/dist/main.js
 RUN yarn affine bundle -p @affine/server
 
-# Frontends. PUBLIC_PATH=/ ist Pflicht, sonst zeigen die Asset-Pfade auf
-# AFFiNEs CDN und die selbstgehostete Instanz lädt weiß.
-ENV PUBLIC_PATH=/
+# Frontends.
+#   PUBLIC_PATH=/  — Pflicht, sonst zeigen die Asset-Pfade auf AFFiNEs CDN und
+#                    die selbstgehostete Instanz lädt weiß.
+#   GITHUB_SHA     — der HTML-Plugin liest sonst den Commit-Hash aus dem
+#                    Git-Repository, das die .dockerignore ausschließt. Der
+#                    Fehler war nicht fatal: der Bau lief mit Exit 0 durch und
+#                    erzeugte trotzdem KEIN dist/. Erst der COPY in Stufe 2 fiel
+#                    darüber. Die Variable ist der dafür vorgesehene Ausweg.
+ARG GITHUB_SHA=cockpit-local-build
+ENV PUBLIC_PATH=/ \
+    GITHUB_SHA=${GITHUB_SHA}
 RUN yarn affine @affine/web build && \
     yarn affine @affine/admin build && \
     yarn affine @affine/mobile build
+
+# Nicht auf den Exit-Code verlassen: prüfen, dass die Artefakte wirklich da sind.
+RUN set -eu; \
+    for d in packages/frontend/apps/web/dist \
+             packages/frontend/admin/dist \
+             packages/frontend/apps/mobile/dist \
+             packages/backend/server/dist; do \
+      test -s "$d/index.html" || test -s "$d/main.js" \
+        || { echo "LEERES BAU-ERGEBNIS: $d"; exit 1; }; \
+    done; \
+    echo "Alle vier Bau-Ergebnisse vorhanden"
 
 # ---------- Stufe 2: Laufzeit ----------
 # Ab hier deckungsgleich mit dem Upstream-Dockerfile, damit sich die
