@@ -22,25 +22,21 @@ ENV PATH="/root/.cargo/bin:${PATH}"
 
 RUN corepack enable
 
-# ALLE Workspaces aus package.json müssen vorhanden sein, sonst fällt die
-# Abhängigkeitsauflösung anders aus und `--immutable` bricht ab
-# (YN0002: doesn't provide … requested by …). Die Liste lautet:
-#   '.', 'blocksuite/**/*', 'packages/*/*', 'packages/frontend/apps/*',
-#   'tools/*', 'docs/reference', 'tools/@types/*', 'tests/*'
-# docs/ und tests/ sehen verzichtbar aus, sind es aber nicht.
-COPY package.json yarn.lock .yarnrc.yml ./
-COPY .yarn/ .yarn/
-COPY tools/ tools/
-COPY packages/ packages/
-COPY blocksuite/ blocksuite/
-COPY docs/ docs/
-COPY tests/ tests/
-COPY Cargo.toml Cargo.lock ./
-COPY .cargo/ .cargo/
+# Den gesamten Kontext kopieren statt einzelne Verzeichnisse auszuwählen.
+# Die mitgelieferte .dockerignore hält node_modules, target/ und Testartefakte
+# ohnehin draußen.
+#
+# Eine Auswahl zu treffen sieht cache-freundlicher aus, war aber die Quelle von
+# drei Fehlschlägen in Folge: es fehlten nacheinander die Workspaces docs/ und
+# tests/ (yarn --immutable bricht bei abweichender Auflösung ab), dann die
+# Root-tsconfig.json, die `affine init` im Postinstall liest. Weitere stille
+# Abhängigkeiten (rust-toolchain.toml, .npmrc, tsconfig.*.json) wären als
+# Nächstes gefolgt. Vollständigkeit schlägt hier Cache-Optimierung.
+COPY . .
 
 # Das Postinstall des Wurzelpakets lautet `yarn affine init && yarn husky`.
-# Husky richtet Git-Hooks ein und scheitert ohne .git-Verzeichnis, das im
-# Baukontext bewusst fehlt. HUSKY=0 ist der offizielle Schalter dafür.
+# Husky richtet Git-Hooks ein und scheitert ohne .git-Verzeichnis, das die
+# .dockerignore ausschließt. HUSKY=0 ist der offizielle Schalter dafür.
 ENV HUSKY=0
 RUN yarn install --immutable
 
