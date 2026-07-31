@@ -94,6 +94,21 @@ COPY --from=builder /src/packages/frontend/apps/web/dist /app/static
 COPY --from=builder /src/packages/frontend/admin/dist /app/static/admin
 COPY --from=builder /src/packages/frontend/apps/mobile/dist /app/static/mobile
 
+# Zwei Dinge, die das Upstream-Dockerfile voraussetzt, weil ihre CI sie vorher
+# an Ort und Stelle legt — beim Selbstbau muss man sie selbst mitbringen:
+#
+#   1. node_modules: Der Bundler zieht zwar den JavaScript-Code in main.js
+#      zusammen, aber Prisma braucht zur Laufzeit seine native Query-Engine.
+#      docker-clean.mjs unten dampft das Verzeichnis wieder ein.
+#   2. Die native Bibliothek gehört nach dist/. Genau dort sucht
+#      `pruneServerNative(distDir, keepArch)` sie und wirft die nicht
+#      benötigten Architekturen weg.
+#
+# Ohne beides baut das Image sauber durch und der Server stirbt beim Start.
+COPY --from=builder /src/node_modules /app/node_modules
+COPY --from=builder /src/packages/backend/native/server-native.node /app/dist/server-native.node
+COPY --from=builder /src/packages/backend/native/server-native.x64.node /app/dist/server-native.x64.node
+
 ARG TARGETARCH
 ARG TARGETVARIANT
 RUN apt-get update && \
@@ -112,6 +127,12 @@ RUN apt-get update && \
     rm -rf /var/lib/apt/lists/*
 
 ENV LD_PRELOAD=libjemalloc.so.2
+
+# Startfähigkeit im Image festnageln, statt sie erst auf helios zu entdecken:
+# Der Server muss die native Bibliothek laden können. `node -e require(...)`
+# scheitert laut, wenn sie fehlt oder für die falsche Architektur gebaut wurde.
+RUN test -s /app/dist/server-native.node \
+    && node -e "require('/app/dist/server-native.node'); console.log('native Bibliothek ladbar')"
 
 EXPOSE 3010
 
