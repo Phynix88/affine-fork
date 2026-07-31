@@ -209,3 +209,138 @@ test('appendDatabaseRow rejects a missing database block', t => {
 
   t.is(error?.message, 'Database block missing not found');
 });
+
+test('appendDatabaseRow writes a multi-select cell as a plain array of option ids', t => {
+  const snapshot = createDatabaseSnapshot([
+    {
+      id: 'project-col',
+      type: 'multi-select',
+      name: 'Projekt',
+      data: {
+        options: [
+          { id: 'pim-option', value: 'PIM' },
+          { id: 'shop-option', value: 'Shop' },
+        ],
+      },
+    },
+  ]);
+
+  const result = appendDatabaseRow(snapshot, {
+    databaseBlockId: 'database-1',
+    rowId: 'row-1',
+    title: 'Business case',
+    cells: { 'project-col': ['pim-option', 'shop-option'] },
+  });
+
+  const doc = loadSnapshot(snapshot, result.update);
+  const cell = (
+    doc
+      .getMap<Y.Map<unknown>>('blocks')
+      .get('database-1')!
+      .get('prop:cells') as Y.Map<Y.Map<Y.Map<unknown>>>
+  )
+    .get('row-1')!
+    .get('project-col')!;
+
+  // The editor stores multi-select as a plain array, not a Y.Array — verified
+  // against a live document before this was implemented.
+  t.deepEqual(cell.get('value'), ['pim-option', 'shop-option']);
+});
+
+test('appendDatabaseRow rejects a multi-select value that is not an array', t => {
+  const error = t.throws(() =>
+    appendDatabaseRow(
+      createDatabaseSnapshot([
+        {
+          id: 'project-col',
+          type: 'multi-select',
+          name: 'Projekt',
+          data: { options: [{ id: 'pim-option', value: 'PIM' }] },
+        },
+      ]),
+      {
+        databaseBlockId: 'database-1',
+        rowId: 'row-1',
+        title: 'Business case',
+        cells: { 'project-col': 'pim-option' },
+      }
+    )
+  );
+
+  t.is(
+    error?.message,
+    'Database column project-col requires an array of configured select options'
+  );
+});
+
+test('appendDatabaseRow rejects an unconfigured option inside a multi-select array', t => {
+  const error = t.throws(() =>
+    appendDatabaseRow(
+      createDatabaseSnapshot([
+        {
+          id: 'project-col',
+          type: 'multi-select',
+          name: 'Projekt',
+          data: { options: [{ id: 'pim-option', value: 'PIM' }] },
+        },
+      ]),
+      {
+        databaseBlockId: 'database-1',
+        rowId: 'row-1',
+        title: 'Business case',
+        cells: { 'project-col': ['pim-option', 'does-not-exist'] },
+      }
+    )
+  );
+
+  t.regex(String(error?.message), /requires a configured select option/);
+});
+
+test('appendDatabaseRow stores a rich-text cell as a Y.Text', t => {
+  const snapshot = createDatabaseSnapshot([
+    { id: 'note-col', type: 'rich-text', name: 'Notiz' },
+  ]);
+
+  const result = appendDatabaseRow(snapshot, {
+    databaseBlockId: 'database-1',
+    rowId: 'row-1',
+    title: 'Business case',
+    cells: { 'note-col': 'Termin mit Olivier am 14.08. vorbereiten' },
+  });
+
+  const doc = loadSnapshot(snapshot, result.update);
+  const value = (
+    doc
+      .getMap<Y.Map<unknown>>('blocks')
+      .get('database-1')!
+      .get('prop:cells') as Y.Map<Y.Map<Y.Map<unknown>>>
+  )
+    .get('row-1')!
+    .get('note-col')!
+    .get('value');
+
+  // Must be collaboratively editable, so a Y.Text — not a plain string.
+  t.true(value instanceof Y.Text);
+  t.is(
+    (value as Y.Text).toString(),
+    'Termin mit Olivier am 14.08. vorbereiten'
+  );
+});
+
+test('appendDatabaseRow rejects a non-string rich-text value', t => {
+  const error = t.throws(() =>
+    appendDatabaseRow(
+      createDatabaseSnapshot([
+        { id: 'note-col', type: 'rich-text', name: 'Notiz' },
+      ]),
+      {
+        databaseBlockId: 'database-1',
+        rowId: 'row-1',
+        title: 'Business case',
+        cells: { 'note-col': 42 },
+      }
+    )
+  );
+
+  t.is(error?.message, 'Database column note-col requires a string');
+});

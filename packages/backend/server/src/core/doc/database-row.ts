@@ -1,10 +1,20 @@
 import * as Y from 'yjs';
 
+/**
+ * What a cell may carry over the wire.
+ *
+ * The array form addresses multi-select columns. Storage was verified against a
+ * live document: the editor writes `{ columnId, value }` where `value` is a
+ * plain array of option ids — not a Y.Array. Rich text is the exception; it is
+ * stored as a Y.Text and therefore built here rather than passed through.
+ */
+export type CellValue = string | number | boolean | string[];
+
 export type AppendDatabaseRowInput = {
   databaseBlockId: string;
   rowId: string;
   title: string;
-  cells?: Record<string, string | number | boolean>;
+  cells?: Record<string, CellValue>;
 };
 
 export type AppendDatabaseRowResult = {
@@ -98,7 +108,7 @@ function readColumnSnapshot(candidate: unknown): ColumnSnapshot | undefined {
 
 function validateCells(
   database: Y.Map<unknown>,
-  cells: Record<string, string | number | boolean>
+  cells: Record<string, CellValue>
 ): void {
   const columns = database.get('prop:columns');
   if (!(columns instanceof Y.Array)) {
@@ -147,6 +157,31 @@ function validateCells(
         }
         break;
       }
+      case 'multi-select': {
+        if (!Array.isArray(value)) {
+          throw new Error(
+            `Database column ${columnId} requires an array of configured select options`
+          );
+        }
+        for (const entry of value) {
+          if (
+            typeof entry !== 'string' ||
+            !entry ||
+            !column.optionIds.has(entry)
+          ) {
+            throw new Error(
+              `Database column ${columnId} requires a configured select option, got ${JSON.stringify(entry)}`
+            );
+          }
+        }
+        break;
+      }
+      case 'rich-text': {
+        if (typeof value !== 'string') {
+          throw new Error(`Database column ${columnId} requires a string`);
+        }
+        break;
+      }
       default:
         throw new Error(
           `Database column ${columnId} type ${String(column.type)} is not supported`
@@ -158,7 +193,7 @@ function validateCells(
 function writeCells(
   database: Y.Map<unknown>,
   rowId: string,
-  cells: Record<string, string | number | boolean>
+  cells: Record<string, CellValue>
 ): void {
   if (!Object.keys(cells).length) {
     return;
@@ -169,11 +204,33 @@ function writeCells(
     throw new Error('Database block has invalid cells');
   }
 
+  // Rich text is the one type that is not stored as a plain value: the editor
+  // keeps it as a Y.Text so it can be collaboratively edited. Everything else —
+  // including the arrays of multi-select — goes in as-is.
+  const columnTypes = new Map<string, string>();
+  const columns = database.get('prop:columns');
+  if (columns instanceof Y.Array) {
+    for (const snapshot of columns.toArray().map(readColumnSnapshot)) {
+      if (snapshot) {
+        columnTypes.set(snapshot.id, snapshot.type);
+      }
+    }
+  }
+
   const rowCells = new Y.Map<unknown>();
   for (const [columnId, value] of Object.entries(cells)) {
     const cell = new Y.Map<unknown>();
     cell.set('columnId', columnId);
-    cell.set('value', value);
+    if (
+      columnTypes.get(columnId) === 'rich-text' &&
+      typeof value === 'string'
+    ) {
+      const text = new Y.Text();
+      text.insert(0, value);
+      cell.set('value', text);
+    } else {
+      cell.set('value', value);
+    }
     rowCells.set(columnId, cell);
   }
   databaseCells.set(rowId, rowCells);

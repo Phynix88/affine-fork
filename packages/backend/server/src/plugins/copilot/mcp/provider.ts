@@ -443,13 +443,20 @@ export class WorkspaceMcpProvider {
         name: 'append_database_row',
         title: 'Append Database Row',
         description:
-          'Append one row to an existing AFFiNE database block. Supports title and validated primitive cells only; it cannot create schemas, attachments, relations, or delete rows.',
+          'Append one row to an existing AFFiNE database block. Supports the row title plus validated cells of type number, date, checkbox, select, multi-select and rich-text. It cannot create databases or columns, add select options, attach files, create relations, or delete anything.',
         parser: z.object({
           docId: z.string(),
           databaseBlockId: z.string(),
           title: z.string().min(1).max(500),
           cells: z
-            .record(z.union([z.string(), z.number(), z.boolean()]))
+            .record(
+              z.union([
+                z.string(),
+                z.number(),
+                z.boolean(),
+                z.array(z.string()),
+              ])
+            )
             .optional(),
         }),
         inputSchema: {
@@ -467,8 +474,15 @@ export class WorkspaceMcpProvider {
             cells: {
               type: 'object',
               description:
-                'Optional values keyed by existing database column ID. V1 only accepts validated primitive values.',
-              additionalProperties: { type: ['string', 'number', 'boolean'] },
+                'Optional values keyed by existing database column ID. Accepted per column type: number -> number, date -> timestamp in milliseconds, checkbox -> boolean, select -> one configured option id, multi-select -> array of configured option ids, rich-text -> string. Option ids come from read_document (data-value attribute), not the visible label.',
+              additionalProperties: {
+                anyOf: [
+                  { type: 'string' },
+                  { type: 'number' },
+                  { type: 'boolean' },
+                  { type: 'array', items: { type: 'string' } },
+                ],
+              },
             },
           },
           required: ['docId', 'databaseBlockId', 'title'],
