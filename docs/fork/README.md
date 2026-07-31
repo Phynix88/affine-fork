@@ -9,10 +9,14 @@ upstream nicht gibt. Erste Erweiterung: Datenbank-Zeilen über den MCP schreiben
 **Update-Kompatibilität zum Upstream ist ausdrücklich kein Ziel.** Wo eine saubere Lösung eine
 Modelländerung verlangt, ist sie erlaubt.
 
+> **Dieses Repository ist öffentlich** (Fork eines öffentlichen Projekts). Geschäftlicher Kontext,
+> Kundendaten und Betriebsgeheimnisse gehören nicht hierher, sondern ins private Homelab-Repo.
+
 ## Wegweiser
 
 | Dokument                                       | Wofür                                                                                                                                            |
 | ---------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **[ZIEL.md](./ZIEL.md)**                       | **Wozu es das gibt** — Ziel, das workflow-getriebene Vorgehen, der Backlog nach Schmerz sortiert, Abhängigkeit vom Upstream                      |
 | **[LESSONS-LEARNED.md](./LESSONS-LEARNED.md)** | **Zuerst lesen, wenn etwas nicht baut.** 17 Lektionen aus dem Aufbau — allen voran: die CI-Datei ist die Bau-Spezifikation, nicht das Dockerfile |
 | [DEPLOY.md](./DEPLOY.md)                       | Image auf helios bauen, prüfen, ausrollen; Rückweg; Vorgehen bei Versionssprüngen                                                                |
 | [MCP-TOOLS.md](./MCP-TOOLS.md)                 | Die sieben MCP-Werkzeuge, ihre Grenzen, der Arbeitsablauf zum Schreiben von Datenbankzeilen                                                      |
