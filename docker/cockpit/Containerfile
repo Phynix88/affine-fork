@@ -38,6 +38,10 @@ COPY tests/ tests/
 COPY Cargo.toml Cargo.lock ./
 COPY .cargo/ .cargo/
 
+# Das Postinstall des Wurzelpakets lautet `yarn affine init && yarn husky`.
+# Husky richtet Git-Hooks ein und scheitert ohne .git-Verzeichnis, das im
+# Baukontext bewusst fehlt. HUSKY=0 ist der offizielle Schalter dafür.
+ENV HUSKY=0
 RUN yarn install --immutable
 
 # Natives Modul (Rust). Dauert am längsten.
