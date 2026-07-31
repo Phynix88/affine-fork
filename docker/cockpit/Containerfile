@@ -43,6 +43,17 @@ RUN yarn install --immutable
 # Natives Modul (Rust). Dauert am längsten.
 RUN yarn affine @affine/server-native build
 
+# `napi build` erzeugt server-native.node ohne Architektur-Suffix. Zur Laufzeit
+# genügt das: packages/backend/native/index.js lädt genau diese Datei zuerst und
+# greift nur im catch-Zweig auf die arch-spezifischen Namen zurück.
+#
+# Der Bundler löst jedoch ALLE require-Aufrufe statisch auf, auch die im
+# Fallback, und bricht sonst mit "Module not found: ./server-native.x64.node" ab.
+# Die Symlinks befriedigen den Auflöser; geladen wird immer die echte Datei.
+RUN cd packages/backend/native && \
+    for a in x64 arm64 armv7; do ln -sf server-native.node "server-native.$a.node"; done && \
+    ls -l server-native*.node
+
 # Server bündeln -> packages/backend/server/dist/main.js
 RUN yarn affine bundle -p @affine/server
 
