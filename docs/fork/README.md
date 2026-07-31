@@ -9,6 +9,17 @@ upstream nicht gibt. Erste Erweiterung: Datenbank-Zeilen über den MCP schreiben
 **Update-Kompatibilität zum Upstream ist ausdrücklich kein Ziel.** Wo eine saubere Lösung eine
 Modelländerung verlangt, ist sie erlaubt.
 
+## Wegweiser
+
+| Dokument                                       | Wofür                                                                                                                                            |
+| ---------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **[LESSONS-LEARNED.md](./LESSONS-LEARNED.md)** | **Zuerst lesen, wenn etwas nicht baut.** 17 Lektionen aus dem Aufbau — allen voran: die CI-Datei ist die Bau-Spezifikation, nicht das Dockerfile |
+| [DEPLOY.md](./DEPLOY.md)                       | Image auf helios bauen, prüfen, ausrollen; Rückweg; Vorgehen bei Versionssprüngen                                                                |
+| [MCP-TOOLS.md](./MCP-TOOLS.md)                 | Die sieben MCP-Werkzeuge, ihre Grenzen, der Arbeitsablauf zum Schreiben von Datenbankzeilen                                                      |
+| dieses Dokument                                | Entwicklungsumgebung auf dem Mac, Abweichungen vom Upstream                                                                                      |
+
+**Produktive Bereitstellung:** Repo `Phynix88/nixos`, `modules/services/web/affine/default.nix`.
+
 ---
 
 ## Bauen und starten
